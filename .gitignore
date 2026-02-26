@@ -1,0 +1,5 @@
+*.env
+*.pkl
+data/
+lambda*/
+.venv/
