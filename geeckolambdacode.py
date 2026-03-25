@@ -46,7 +46,7 @@ def get_top_coins():
     df.to_parquet(f'data/crypto/crypto_{timestamp}.parquet')
 
     s3 = boto3.client('s3')
-    s3.upload_file(f'data/crypto/crypto_{timestamp}.parquet', 'amzn-s3-tfgdl', f'crypto/{year}/{month}/{day}/crypto_{timestamp}.parquet'
+    s3.upload_file(f'data/crypto/crypto_{timestamp}.parquet', 'amzn-s3-tfgdl', f'crypto/year={year}/month={month}/day={day}/crypto_{timestamp}.parquet'
     )
 
 get_top_coins()

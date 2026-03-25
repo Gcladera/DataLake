@@ -75,6 +75,6 @@ def lambda_handler(event, context):
     s3 = boto3.client('s3')
     s3.put_object(
         Bucket='amzn-s3-tfgdl',
-        Key=f'posts/{year}/{month}/{day}/posts_{timestamp}.parquet',
+        Key=f'bronze/posts/year={year}/month={month}/day={day}/posts_{timestamp}.parquet',
         Body=buffer
         )
