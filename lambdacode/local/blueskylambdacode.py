@@ -1,12 +1,14 @@
 import os
 import io
+from dotenv import load_dotenv
 import boto3
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import pickle 
 from atproto import Client
+import emoji
 
-
+load_dotenv()
 def get_data(call_api=False, search_attributes=[]): #para mas querys meter if's y argumentos de T/F
     if call_api:
         client = initialise_api_client()
@@ -20,7 +22,7 @@ def get_data(call_api=False, search_attributes=[]): #para mas querys meter if's 
 
 def initialise_api_client():
     client = Client()
-    client.login(login=os.getenv("BS_USER"), password=os.getenv("BS_PASSWORD")) #hacer lo de .env
+    client.login(login=os.getenv('BS_USER'), password=os.getenv('BS_PASSWORD'))
     return client
 
 def get_latests_posts(client, search_attributes):
@@ -35,9 +37,9 @@ def get_latests_posts(client, search_attributes):
     )
     return response
 
-def lambda_handler(event, context):
+def upload_results():
     search_attributes = "bitcoin OR crypto" #No funciona lo del or con #
-    data = get_data(call_api=True, search_attributes=search_attributes)
+    data = get_data(call_api=False, search_attributes=search_attributes)
          
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
     year = datetime.now().strftime('%Y')
@@ -60,21 +62,26 @@ def lambda_handler(event, context):
                     'repost_count': postview.repost_count
                 }
                 cleaned_data.append(entry)
-
     df = pd.DataFrame(cleaned_data)
-   
+    print(df.head())
+    df['text'] = df['text'].apply(lambda x: emoji.replace_emoji(str(x), replace=''))
+    df['text'] = df['text'].astype(str).str.encode('utf-8', 'ignore').str.decode('utf-8')
+    df = df.fillna("")
+    print(df['text'])
 
     # df.to_parquet(f'data/posts/posts_{timestamp}.parquet')
     # s3 = boto3.client('s3')
     # s3.upload_file(f'data/posts/posts_{timestamp}.parquet', 'amzn-s3-tfgdl', f'posts/{year}/{month}/{day}/posts_{timestamp}.parquet')
 
-    buffer = io.BytesIO()
-    df.to_parquet(buffer, index=False)
-    buffer.seek(0)
+    # buffer = io.BytesIO()
+    # df.to_parquet(buffer, index=False)
+    # buffer.seek(0)
 
-    s3 = boto3.client('s3')
-    s3.put_object(
-        Bucket='amzn-s3-tfgdl',
-        Key=f'bronze/posts/year={year}/month={month}/day={day}/posts_{timestamp}.parquet',
-        Body=buffer
-        )
+    # s3 = boto3.client('s3')
+    # s3.put_object(
+    #     Bucket='amzn-s3-tfgdl',
+    #     Key=f'posts/{year}/{month}/{day}/posts_{timestamp}.parquet',
+    #     Body=buffer
+    #     )
+
+upload_results()

@@ -1,13 +1,12 @@
 import os
 import io
-from dotenv import load_dotenv
 import boto3
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import pickle 
 from atproto import Client
+import emoji
 
-load_dotenv()
 def get_data(call_api=False, search_attributes=[]): #para mas querys meter if's y argumentos de T/F
     if call_api:
         client = initialise_api_client()
@@ -21,22 +20,22 @@ def get_data(call_api=False, search_attributes=[]): #para mas querys meter if's 
 
 def initialise_api_client():
     client = Client()
-    client.login(login=os.getenv('BS_USER'), password=os.getenv('BS_PASSWORD'))
+    client.login(login="grau.cladera@autonoma.cat", password="mENp8HEbpv9kUid")
     return client
 
 def get_latests_posts(client, search_attributes):
-    hace_30_min = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    hace_30_min = (datetime.now(timezone.utc) - timedelta(minutes=180)).isoformat()
     response = client.app.bsky.feed.search_posts(
         params={
             'q': search_attributes,
-            'since': hace_30_min,
+            # 'since': hace_30_min,
             'sort': 'latest',     
             'limit': 20           
         }
     )
     return response
 
-def upload_results():
+def lambda_handler(event, context):
     search_attributes = "bitcoin OR crypto" #No funciona lo del or con #
     data = get_data(call_api=True, search_attributes=search_attributes)
          
@@ -63,8 +62,11 @@ def upload_results():
                 cleaned_data.append(entry)
 
     df = pd.DataFrame(cleaned_data)
-   
+    df['text'] = df['text'].apply(lambda x: emoji.replace_emoji(str(x), replace=''))
+    df['text'] = df['text'].astype(str).str.encode('utf-8', 'ignore').str.decode('utf-8')
+    df = df.fillna("")
 
+    
     # df.to_parquet(f'data/posts/posts_{timestamp}.parquet')
     # s3 = boto3.client('s3')
     # s3.upload_file(f'data/posts/posts_{timestamp}.parquet', 'amzn-s3-tfgdl', f'posts/{year}/{month}/{day}/posts_{timestamp}.parquet')
@@ -76,8 +78,7 @@ def upload_results():
     s3 = boto3.client('s3')
     s3.put_object(
         Bucket='amzn-s3-tfgdl',
-        Key=f'posts/{year}/{month}/{day}/posts_{timestamp}.parquet',
+        Key=f'bronze/posts/year={year}/month={month}/day={day}/posts_{timestamp}.parquet',
         Body=buffer
         )
-
-upload_results()
+lambda_handler("", "")

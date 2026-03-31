@@ -48,13 +48,14 @@ def lambda_handler(event, context):
     #s3.upload_file(f'data/crypto/crypto_{timestamp}.parquet', 'amzn-s3-tfgdl', f'crypto/{year}/{month}/{day}/crypto_{timestamp}.parquet'
     
     buffer = io.BytesIO()
-    df.to_parquet(buffer, index=False)
+    df.to_parquet(buffer, index=False, engine="pyarrow", coerce_timestamps='us', allow_truncated_timestamps=True)
     buffer.seek(0)
 
     s3 = boto3.client('s3')
     s3.put_object(
         Bucket='amzn-s3-tfgdl',
         Key=f'bronze/crypto/year={year}/month={month}/day={day}/crypto_{timestamp}.parquet',
-        Body=buffer
+        Body=buffer.getvalue(),
+        ContentType="application/x-parquet"
         )
     

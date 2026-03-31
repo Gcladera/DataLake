@@ -1,5 +1,7 @@
 *.env
 *.pkl
 data/
-lambda*/
+*package*/
 .venv/
+jupyter_notebook/
+*.zip
