@@ -6,6 +6,7 @@ import pandas as pd
 import pickle 
 from atproto import Client
 import emoji
+import uuid
 
 def get_data(call_api=False, search_attributes=[]): #para mas querys meter if's y argumentos de T/F
     if call_api:
@@ -22,6 +23,7 @@ def initialise_api_client():
     client = Client()
     client.login(login="grau.cladera@autonoma.cat", password="mENp8HEbpv9kUid")
     return client
+
 
 def get_latests_posts(client, search_attributes):
     hace_30_min = (datetime.now(timezone.utc) - timedelta(minutes=180)).isoformat()
@@ -62,17 +64,19 @@ def lambda_handler(event, context):
                 cleaned_data.append(entry)
 
     df = pd.DataFrame(cleaned_data)
-    df['text'] = df['text'].apply(lambda x: emoji.replace_emoji(str(x), replace=''))
-    df['text'] = df['text'].astype(str).str.encode('utf-8', 'ignore').str.decode('utf-8')
-    df = df.fillna("")
+    # df['text'] = df['text'].apply(lambda x: emoji.replace_emoji(str(x), replace='')) #Sino dona errors amb parquet.
+    # df['text'] = df['text'].astype(str).str.encode('utf-8', 'ignore').str.decode('utf-8')
+    # df = df.fillna("")
 
-    
+    df['id'] = [str(uuid.uuid4()) for _ in range(len(df))]
+
+# Opción mucho más rápida para datasets grandes
     # df.to_parquet(f'data/posts/posts_{timestamp}.parquet')
     # s3 = boto3.client('s3')
     # s3.upload_file(f'data/posts/posts_{timestamp}.parquet', 'amzn-s3-tfgdl', f'posts/{year}/{month}/{day}/posts_{timestamp}.parquet')
 
     buffer = io.BytesIO()
-    df.to_parquet(buffer, index=False)
+    df.to_parquet(buffer, index=False, engine="pyarrow", coerce_timestamps='us', allow_truncated_timestamps=True)
     buffer.seek(0)
 
     s3 = boto3.client('s3')

@@ -38,7 +38,7 @@ df_final = df_clean.withColumn("current_price",
 
 #TRANSFORM
 data_proces = datetime.now()
-df_final = df_final.withColumn("year", lit(data_proces.strftime('%Y'))) \
+df_final = df_final.coalesce(1).withColumn("year", lit(data_proces.strftime('%Y'))) \
                    .withColumn("month", lit(data_proces.strftime('%m'))) \
                    .withColumn("day", lit(data_proces.strftime('%d')))
 

@@ -5,7 +5,7 @@ import boto3
 from datetime import datetime, timezone
 import pandas as pd
 import pickle 
-
+import uuid
 
 def get_data(call_api=False):
     if call_api:
@@ -41,7 +41,8 @@ def lambda_handler(event, context):
     df['roi_percentage'] = df['roi'].apply(lambda x: x.percentage if x else None)
     df['roi_times'] = df['roi'].apply(lambda x: x.times if x else None)
     df = df.drop(columns=['roi'])
-            
+    df['id'] = [str(uuid.uuid4()) for _ in range(len(df))]
+
     #df.to_parquet(f'data/crypto/crypto_{timestamp}.parquet')
 
     #s3 = boto3.client('s3')
