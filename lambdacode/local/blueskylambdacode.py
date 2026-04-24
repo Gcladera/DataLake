@@ -67,7 +67,6 @@ def upload_results():
     df['text'] = df['text'].apply(lambda x: emoji.replace_emoji(str(x), replace=''))
     df['text'] = df['text'].astype(str).str.encode('utf-8', 'ignore').str.decode('utf-8')
     df = df.fillna("")
-    print(df['text'])
 
     # df.to_parquet(f'data/posts/posts_{timestamp}.parquet')
     # s3 = boto3.client('s3')

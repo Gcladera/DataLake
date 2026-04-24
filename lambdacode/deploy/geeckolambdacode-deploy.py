@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 import pandas as pd
 import pickle 
 import uuid
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path="/mnt/windows/Users/user/Documents/PERSONAL/Grau/Educacion/UAB/Any4/TFG/Codi/.env")
 
 def get_data(call_api=False):
     if call_api:
         client = initialise_api_client()
-        coins = client.coins.markets.get(vs_currency='eur', order='market_cap_desc', per_page=100, page=1)
+        coins = client.coins.markets.get(vs_currency='eur', order='market_cap_desc', per_page=10, page=1)
         # with open('coins.pkl', 'wb') as f:
         #     pickle.dump(coins, f)
         return coins
@@ -30,7 +33,7 @@ def initialise_api_client():
 def lambda_handler(event, context):
     data = get_data(call_api=True)
 
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M') #realmente no hace falta el año en este caso.
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
     year = datetime.now().strftime('%Y')
     month = datetime.now().strftime('%m')
     day = datetime.now().strftime('%d')
@@ -42,7 +45,8 @@ def lambda_handler(event, context):
     df['roi_times'] = df['roi'].apply(lambda x: x.times if x else None)
     df = df.drop(columns=['roi'])
     df['id'] = [str(uuid.uuid4()) for _ in range(len(df))]
-
+    df['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
     #df.to_parquet(f'data/crypto/crypto_{timestamp}.parquet')
 
     #s3 = boto3.client('s3')
@@ -60,3 +64,5 @@ def lambda_handler(event, context):
         ContentType="application/x-parquet"
         )
     
+
+

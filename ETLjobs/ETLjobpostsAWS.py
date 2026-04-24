@@ -172,18 +172,6 @@ CRYPTO_NAMES = {
     "near": ["near", "near protocol"]
 }
 
-df_cryptos = spark.read.parquet("s3://amzn-s3-tfgdl/bronze/crypto/year=2026/month=04/day=08/crypto_2026-04-08_18-45.parquet") #De momento bronze, no silver porque silver tiene todo fragmentado
-
-# Agafem els símbols únics (assumint que a la taula ja tens només el Top 10 o ho filtres aquí)
-# El .collect() porta les dades dels workers al driver per fer una llista normal de Python
-
-top_10_list = df_cryptos.select("name").distinct().rdd.flatMap(lambda x: x).collect()
-top_10_lower = [str(coin).lower() for coin in top_10_list]
-top_10_dict = {coin: CRYPTO_NAMES[coin] for coin in top_10_lower if coin in CRYPTO_NAMES}
-
-# BROADCAST: Llista a tots els nodes de Spark perquè la tinguin a la memòria RAM. per no fer més peticions a S3.
-broadcast_top10 = spark.sparkContext.broadcast(top_10_dict)
-
 def clean_text(text):
     if not text or not isinstance(text, str):
         return ""
@@ -210,7 +198,7 @@ def clean_text(text):
 def detect_sentiment_score(iterator):
     # Inicialitzem el client una vegada per partició
     comprehend = boto3.client('comprehend', region_name='eu-central-1')
-    batch_size = 25 #sin el batch size, se llama una vez a comprehend por fila. Comprehend acepta hasta 25 documentos por llamada. Reducimos el número de requests y de coste.
+    batch_size = 25 
     rows = list(iterator)
     for row in range(0, len(rows), batch_size):
         
@@ -276,29 +264,44 @@ def identify_crypto(text):
     return list(found)
 
 try:
-    # Si som a AWS, això funcionarà
     args = getResolvedOptions(sys.argv, ['JOB_NAME'])
+    sc = SparkContext()
+    glueContext = GlueContext(sc)
+    spark = glueContext.spark_session
+    job = Job(glueContext)
+    job.init(args['JOB_NAME'], args)
+    IS_AWS = True
 except:
-    # Si som al Docker (Local), inventem un nom pel Job
+    spark = SparkSession.builder.getOrCreate()
+    glueContext = GlueContext(spark.sparkContext)
     args = {'JOB_NAME': 'local_test_job'}
+    IS_AWS = False
 
-spark = SparkSession.builder.getOrCreate()
-glueContext = GlueContext(spark.sparkContext)
-spark.sparkContext.setLogLevel("ERROR")
+if IS_AWS:
+    df_raw = glueContext.create_dynamic_frame.from_catalog(
+        database="glue-crawler-schema-database",
+        table_name="posts"
+    ).toDF()
+else:
+    df_raw = spark.read \
+        .option("datetimeRebaseMode", "CORRECTED") \
+        .parquet("s3://amzn-s3-tfgdl/bronze/posts/year=2026/month=04/day=08/posts_2026-04-08_19-50.parquet")
 
-args = getResolvedOptions(sys.argv, ['JOB_NAME'])
-sc = SparkContext()
-glueContext = GlueContext(sc)
-spark = glueContext.spark_session
-job = Job(glueContext)
-job.init(args['JOB_NAME'], args)
+today = datetime.now()
+year  = today.strftime('%Y')
+month = today.strftime('%m')
+day   = today.strftime('%d')
 
-df_raw = glueContext.create_dynamic_frame.from_catalog(
-    database="glue-crawler-schema-database",
-    table_name="posts"
-)
+df_cryptos = spark.read.parquet(f"s3://amzn-s3-tfgdl/bronze/crypto/year={year}/month={month}/day={day}/") #De momento bronze, no silver porque silver tiene todo fragmentado. Esto es temporal, lo ideal seria coger el archivo más reciente, no todos los del día.
 
-#df_raw = spark.read.parquet("s3://amzn-s3-tfgdl/bronze/posts/year=2026/month=04/day=08/posts_2026-04-08_19-50.parquet")
+# El .collect() porta les dades dels workers al driver per fer una llista normal de Python
+
+top_10_list = df_cryptos.select("name").distinct().rdd.flatMap(lambda x: x).collect()
+top_10_lower = [str(coin).lower() for coin in top_10_list]
+top_10_dict = {coin: CRYPTO_NAMES[coin] for coin in top_10_lower if coin in CRYPTO_NAMES}
+
+# BROADCAST: Llista a tots els nodes de Spark perquè la tinguin a la memòria RAM. per no fer més peticions a S3.
+broadcast_top10 = spark.sparkContext.broadcast(top_10_dict)
 
 columnas_a_borrar = ["uri", "cid", "author_handle", "indexed_at", "like_count", "repost_count", "reply_count"]
 df = df_raw.drop(*columnas_a_borrar)
@@ -336,9 +339,9 @@ df_scores = spark.createDataFrame(scores, schema_scores)
 df_with_ml = df_filtered.join(df_scores, on="id", how="left")
 
 
-year = datetime.now().strftime('%Y')
-month = datetime.now().strftime('%m')
-day = datetime.now().strftime('%d')
+# year = datetime.now().strftime('%Y')
+# month = datetime.now().strftime('%m')
+# day = datetime.now().strftime('%d')
 
 #Coalasce(1) per fusionar tots els arxius dels workers (abans cada worker guardava un arxiu). Athena treballa millor amb arxius de 128MB-1GB en comptes de amb molts arxius molt petits.
 df_final = df_with_ml.coalesce(1).withColumn("year", lit(year)) \
