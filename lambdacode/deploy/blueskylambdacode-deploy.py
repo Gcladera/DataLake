@@ -1,7 +1,7 @@
 import os
 import io
 import boto3
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 import pandas as pd 
 from coingecko_sdk import Coingecko
 from atproto import Client
@@ -9,6 +9,7 @@ import hashlib
 import logging
 import json
 from dotenv import load_dotenv
+import time
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -54,7 +55,7 @@ def get_relationships(client: Client, actors: list):
             social_graph.append( {
                 'id': hashlib.md5(actor.encode()).hexdigest(),
                 'display_name': profile.display_name,
-                'follows': f,
+                'follows': json.dumps(f),
                 'author_did': profile.did,
                 'author_handle': profile.handle,
                 }
@@ -85,20 +86,14 @@ def get_crypto_data(client):
 
     coins_list = []
     for i in range(len(coins)):
-        if i == len(coins)-1:
-            search_attributes = f"{coins[i].name} OR {coins[i].symbol}"
-        else:   
-            search_attributes = f"{coins[i].name} OR {coins[i].symbol} OR"
-        
-        coins_list.append(search_attributes)
-    coins_list = " ".join(coins_list)
+        coins_list.append(coins[i].name)
     return coins_list
    
 
 def initialise_posts_api_client():
     try:
         client = Client()
-        client.login(login="grau.cladera@autonoma.cat", password="mENp8HEbpv9kUid")
+        client.login(login=os.getenv('BS_USER'), password=os.getenv('BS_PASSWORD'))
         return client
     except Exception as e:
         logger.error(f"Error initializing posts API client: {e}")
@@ -113,40 +108,43 @@ def transform_data_to_parquet(data):
 
 
 def get_latests_posts(client, search_attributes):
-    try:
-        # antiquity = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
-        response = client.app.bsky.feed.search_posts(
-            params={
-                'q': " ".join(search_attributes),
-                # 'since': antiquity,
-                'sort': 'latest',  
-                'limit': 20        
-            }
-        )
-        return response
-    except Exception as e:
-        logger.error(f"Error in get_latests_posts: {e}")
-        raise
+    total_posts = []
+    for coin in search_attributes:
+        try:
+            response = client.app.bsky.feed.search_posts(
+                params={
+                    'q': coin,
+                    'sort': 'latest',  
+                    'limit': 20        
+                }
+            )
+            total_posts.append(response)            
+            time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Error searching posts {coin}: {e}")
+
+    return total_posts
 
 def process_posts_data(data):
     processed_data = []
-    for post in data:
-        if post[0] == 'posts':
-            for postview in post[1]:
-                entry = {
-                    'id': hashlib.md5(postview.cid.encode()).hexdigest(),
-                    'cid': postview.cid, #content identifier
-                    'author_handle': postview.author.handle,
-                    'author_did': postview.author.did,
-                    'text': postview.record.text,
-                    'created_at': pd.to_datetime(postview.record.created_at),
-                    'indexed_at': pd.to_datetime(postview.indexed_at),
-                    'like_count': postview.like_count,
-                    'reply_count': postview.reply_count,
-                    'repost_count': postview.repost_count,
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
-                processed_data.append(entry)
+    for batch in data:
+        for post in batch:
+            if post[0] == 'posts':
+                for postview in post[1]:
+                    entry = {
+                        'id': hashlib.md5(postview.cid.encode()).hexdigest(),
+                        'cid': postview.cid,
+                        'author_handle': postview.author.handle,
+                        'author_did': postview.author.did,
+                        'text': postview.record.text,
+                        'created_at': pd.to_datetime(postview.record.created_at),
+                        'indexed_at': pd.to_datetime(postview.indexed_at),
+                        'like_count': postview.like_count,
+                        'reply_count': postview.reply_count,
+                        'repost_count': postview.repost_count,
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    processed_data.append(entry)
     return processed_data
   
 
@@ -157,8 +155,14 @@ def lambda_handler(event, context):
         search_attributes = get_crypto_data(client=client_crypto)
         data = get_posts(search_attributes=search_attributes, client=client_posts)
         cleaned_data = process_posts_data(data)
-        accounts = set([post.author.did for post in data.posts])        
+        accounts_count = {}
+        for post in cleaned_data:
+            did = post['author_did']
+            accounts_count[did] = accounts_count.get(did, 0) + 1
 
+        top_accounts = sorted(accounts_count.items(), key=lambda x: x[1], reverse=True)
+        accounts = [did for did, _ in top_accounts[:15]]
+        
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
         year = datetime.now().strftime('%Y')
         month = datetime.now().strftime('%m')
