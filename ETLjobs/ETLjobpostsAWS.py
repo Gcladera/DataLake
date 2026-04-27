@@ -175,11 +175,10 @@ CRYPTO_NAMES = {
 def clean_text(text):
     if not text or not isinstance(text, str):
         return ""
-    text = text.lower()
     text = re.sub(r'http\S+|www\.\S+', '', text)
     text = re.sub(r'@\w+', '', text)
     text = re.sub(r'#\w+', '', text)
-    text = re.sub(r'[^a-z0-9\$\%\.\s]', ' ', text)
+    text = re.sub(r'[^a-zA-Z0-9\$\%\.\s\!\?]', ' ', text)
     """
     #[]: Define un "conjunto" de caracteres.
     
@@ -191,14 +190,13 @@ def clean_text(text):
     """
     text = re.sub(r'\s+', ' ', text).strip()
     words = text.split()
-    words = [w for w in words if any(char.isdigit() for char in w) or (w not in STOPWORDS and len(w) > 2)]
+    words = [w for w in words if any(char.isdigit() for char in w) or (w.lower() not in STOPWORDS and len(w) > 2)]
     return ' '.join(words)
-
 
 def detect_sentiment_score(iterator):
     # Inicialitzem el client una vegada per partició
     comprehend = boto3.client('comprehend', region_name='eu-central-1')
-    batch_size = 25 
+    batch_size = 25 #sin el batch size, se llama una vez a comprehend por fila. Comprehend acepta hasta 25 documentos por llamada. Reducimos el número de requests y de coste.
     rows = list(iterator)
     for row in range(0, len(rows), batch_size):
         
@@ -247,73 +245,70 @@ def detect_sentiment_score(iterator):
                       neutral=0.0,  mixed=0.0)
 
 def identify_crypto(text):
-    """
-    Falta conectar amb l'altre ETL per agafar les darreres top 10 monedes.
-    """
-    cryptos = broadcast_top10.value
+    cryptos = broadcast_top20.value #Desempaqueta la llista de la memòria
     if not text or not isinstance(text, str):
-        return ""
+        return []
     found = set()
     for crypto, aliases in cryptos.items():
         for alias in aliases:
-            if re.search(r'\b' + re.escape(alias) + r'\b', text):
+            if re.search(r'\b' + re.escape(alias) + r'\b', text, re.IGNORECASE):
                     found.add(crypto)
-    if not found:
-        return ""
-
+                    break
     return list(found)
 
-try:
-    args = getResolvedOptions(sys.argv, ['JOB_NAME'])
-    sc = SparkContext()
-    glueContext = GlueContext(sc)
-    spark = glueContext.spark_session
-    job = Job(glueContext)
-    job.init(args['JOB_NAME'], args)
-    IS_AWS = True
-except:
-    spark = SparkSession.builder.getOrCreate()
-    glueContext = GlueContext(spark.sparkContext)
-    args = {'JOB_NAME': 'local_test_job'}
-    IS_AWS = False
 
-if IS_AWS:
-    df_raw = glueContext.create_dynamic_frame.from_catalog(
-        database="glue-crawler-schema-database",
-        table_name="posts"
-    ).toDF()
-else:
-    df_raw = spark.read \
-        .option("datetimeRebaseMode", "CORRECTED") \
-        .parquet("s3://amzn-s3-tfgdl/bronze/posts/year=2026/month=04/day=08/posts_2026-04-08_19-50.parquet")
+args = getResolvedOptions(sys.argv, ['JOB_NAME'])
+sc = SparkContext()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+job = Job(glueContext)
+job.init(args['JOB_NAME'], args)
+IS_AWS = True
+
+df_raw = glueContext.create_dynamic_frame.from_catalog(
+    database="glue-crawler-schema-database",
+    table_name="post_content"
+).toDF()
 
 today = datetime.now()
 year  = today.strftime('%Y')
 month = today.strftime('%m')
 day   = today.strftime('%d')
 
-df_cryptos = spark.read.parquet(f"s3://amzn-s3-tfgdl/bronze/crypto/year={year}/month={month}/day={day}/") #De momento bronze, no silver porque silver tiene todo fragmentado. Esto es temporal, lo ideal seria coger el archivo más reciente, no todos los del día.
+bucket_name = "amzn-s3-tfgdl"
+prefix = f"bronze/crypto/market_ranking/year={year}/month={month}/day=25/" #S'ha de canviar el dia.
+
+s3_client = boto3.client('s3')
+response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+
+if 'Contents' in response:
+    arxius_ordenats = sorted(response['Contents'], key=lambda obj: obj['LastModified'], reverse=True)
+    latest_file_key = arxius_ordenats[0]['Key']
+    latest_s3_path = f"s3://{bucket_name}/{latest_file_key}"
+    print(f"Llegint el Top 20 des de: {latest_s3_path}")
+    df_cryptos = spark.read.parquet(latest_s3_path)
+else:
+    raise Exception(f"No s'ha trobat cap arxiu de criptos per la data d'avui a {prefix}")
 
 # El .collect() porta les dades dels workers al driver per fer una llista normal de Python
-
-top_10_list = df_cryptos.select("name").distinct().rdd.flatMap(lambda x: x).collect()
-top_10_lower = [str(coin).lower() for coin in top_10_list]
-top_10_dict = {coin: CRYPTO_NAMES[coin] for coin in top_10_lower if coin in CRYPTO_NAMES}
+top_20_list = df_cryptos.select("name").distinct().rdd.flatMap(lambda x: x).collect()
+top_20_lower = [str(coin).lower() for coin in top_20_list]
+top_20_dict = {coin: CRYPTO_NAMES[coin] for coin in top_20_lower if coin in CRYPTO_NAMES}
 
 # BROADCAST: Llista a tots els nodes de Spark perquè la tinguin a la memòria RAM. per no fer més peticions a S3.
-broadcast_top10 = spark.sparkContext.broadcast(top_10_dict)
+broadcast_top20 = spark.sparkContext.broadcast(top_20_dict)
 
 columnas_a_borrar = ["uri", "cid", "author_handle", "indexed_at", "like_count", "repost_count", "reply_count"]
 df = df_raw.drop(*columnas_a_borrar)
+df = df.dropDuplicates(["id"])
 
 clean_text_udf = udf(clean_text, StringType()) #Funcion especial de pyspark para aplicar la función a cada fila de la columna de texto
 crypto_udf = udf(identify_crypto, ArrayType(StringType()))
 
 
-
 df_text_cleaned = df.withColumn("text_cleaned", clean_text_udf(col("text")))
-df_cryptos_identified = df_text_cleaned.withColumn("crypto_mentioned", crypto_udf(col("text_cleaned")))
-
+df_cryptos_identified_with_text = df_text_cleaned.withColumn("crypto_mentioned", crypto_udf(col("text_cleaned")))
+df_cryptos_identified = df_cryptos_identified_with_text.drop('text')
 
 df_filtered = df_cryptos_identified.filter(size(col("crypto_mentioned"))>0)
 df_filtered.cache()
@@ -322,6 +317,8 @@ df_filtered.count() #Obligar a guardar en caché. Vital pel join
 OPTIMAL_PARTITIONS = 10 #Per gestionar límits concurrència comprehend
 
 df_light = df_filtered.select("id", "text_cleaned").repartition(OPTIMAL_PARTITIONS) #Df lleuger
+df_light.cache()
+df_light.count()
 
 schema_scores = StructType([
     StructField("id", StringType(), False),
@@ -336,12 +333,10 @@ scores = df_light.rdd.mapPartitions(detect_sentiment_score)
 
 df_scores = spark.createDataFrame(scores, schema_scores)
 
+df_scores.cache()
+df_scores.count()
+
 df_with_ml = df_filtered.join(df_scores, on="id", how="left")
-
-
-# year = datetime.now().strftime('%Y')
-# month = datetime.now().strftime('%m')
-# day = datetime.now().strftime('%d')
 
 #Coalasce(1) per fusionar tots els arxius dels workers (abans cada worker guardava un arxiu). Athena treballa millor amb arxius de 128MB-1GB en comptes de amb molts arxius molt petits.
 df_final = df_with_ml.coalesce(1).withColumn("year", lit(year)) \
@@ -354,7 +349,7 @@ glueContext.write_dynamic_frame.from_options(
     frame=dynamic_output,
     connection_type="s3",
     connection_options={
-        "path": f"s3://amzn-s3-tfgdl/silver/posts-silver/",
+        "path": f"s3://amzn-s3-tfgdl/silver/posts/post-content-silver/",
         "partitionKeys": ["year", "month", "day"]
     },
     format="parquet"
