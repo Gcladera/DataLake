@@ -6,13 +6,11 @@ import boto3
 from datetime import datetime
 import time
 import pandas as pd
-from dotenv import load_dotenv
 import hashlib
 import json
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-load_dotenv(dotenv_path="/mnt/windows/Users/user/Documents/PERSONAL/Grau/Educacion/UAB/Any4/TFG/Codi/.env")
 
 def hash_row(row):
     row_str = '|'.join(str(x) for x in row.values)
@@ -34,7 +32,27 @@ def get_market_data(client):
     df['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     return df
-    
+
+def get_secret():
+    secret_name = "CryptoAPICredentials"
+    region_name = "eu-north-1"
+
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except Exception as e:
+        raise e
+
+    secret_string = get_secret_value_response['SecretString']
+    secret = json.loads(secret_string)
+    return secret
 
 def get_trending_data(client):
     try:
@@ -91,8 +109,9 @@ def get_community_sentiment(client, coin_ids):
 
 def initialise_api_client():
     try:
+        secret = get_secret()
         client = Coingecko(
-            demo_api_key = os.getenv("COINGECKO_API_KEY"),
+            demo_api_key = secret["COINGECKO_API_KEY"],
             environment="demo",)
         return client
     except Exception as e:
@@ -158,5 +177,3 @@ def lambda_handler(event, context):
     except Exception as e:
         logger.error(f"Error in lambda_handler: {e}")
         raise
-
-lambda_handler(None, None)

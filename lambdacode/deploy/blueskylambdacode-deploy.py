@@ -16,6 +16,48 @@ logger.setLevel(logging.INFO)
 
 load_dotenv(dotenv_path="/mnt/windows/Users/user/Documents/PERSONAL/Grau/Educacion/UAB/Any4/TFG/Codi/.env")
 
+def get_bluesky_secret():
+    secret_name = "BlueSkyAPICredentials"
+    region_name = "eu-north-1"
+
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except Exception as e:
+        raise e
+
+    secret_string = get_secret_value_response['SecretString']
+    secret = json.loads(secret_string)
+    return secret
+
+def get_crypto_secret():
+    secret_name = "CryptoAPICredentials"
+    region_name = "eu-north-1"
+
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except Exception as e:
+        raise e
+
+    secret_string = get_secret_value_response['SecretString']
+    secret = json.loads(secret_string)
+    return secret
+
 def get_posts(search_attributes, client):
     try:
         posts = get_latests_posts(client, search_attributes)
@@ -68,8 +110,9 @@ def get_relationships(client: Client, actors: list):
 
 def initialise_cryptos_api_client():
     try:
+        secret = get_crypto_secret()
         client = Coingecko(
-            demo_api_key = os.getenv("COINGECKO_API_KEY"),
+            demo_api_key = secret["COINGECKO_API_KEY"],
             environment="demo",)
         
         return client
@@ -92,8 +135,9 @@ def get_crypto_data(client):
 
 def initialise_posts_api_client():
     try:
+        secret = get_bluesky_secret()
         client = Client()
-        client.login(login=os.getenv('BS_USER'), password=os.getenv('BS_PASSWORD'))
+        client.login(login=secret['BS_USER'], password=secret['BS_PASSWORD'])
         return client
     except Exception as e:
         logger.error(f"Error initializing posts API client: {e}")
