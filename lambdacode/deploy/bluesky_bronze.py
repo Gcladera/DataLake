@@ -1,7 +1,7 @@
 import io
 import boto3
 from datetime import datetime
-import pandas as pd 
+import pandas as pd
 from coingecko_sdk import Coingecko
 from atproto import Client
 import hashlib
@@ -54,13 +54,57 @@ def get_crypto_secret():
     secret = json.loads(secret_string)
     return secret
 
-def get_posts(search_attributes, client):
+def initialise_cryptos_api_client():
     try:
-        posts = get_latests_posts(client, search_attributes)
-        return posts
+        secret = get_crypto_secret()
+        client = Coingecko(
+            demo_api_key = secret["COINGECKO_API_KEY"],
+            environment="demo",)
+        
+        return client
     except Exception as e:
-        logger.error(f"Error in get_posts: {e}")
+        logger.error(f"Error initializing cryptos API client: {e}")
         raise
+
+def initialise_posts_api_client():
+    try:
+        secret = get_bluesky_secret()
+        client = Client()
+        client.login(login=secret['BS_USER'], password=secret['BS_PASSWORD'])
+        return client
+    except Exception as e:
+        logger.error(f"Error initializing posts API client: {e}")
+        raise
+
+def get_crypto_data(client):
+    try:
+        coins = client.coins.markets.get(vs_currency='eur', order='market_cap_desc', per_page=20, page=1)
+    except Exception as e:
+        logger.error(f"Error in get_crypto_data: {e}")
+        raise
+
+    coins_list = []
+    for i in range(len(coins)):
+        coins_list.append(coins[i].name)
+    return coins_list
+
+def get_latests_posts(client, search_attributes):
+    total_posts = []
+    for coin in search_attributes:
+        try:
+            response = client.app.bsky.feed.search_posts(
+                params={
+                    'q': coin,
+                    'sort': 'latest',  
+                    'limit': 20        
+                }
+            )
+            total_posts.append(response)            
+            time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Error searching posts {coin}: {e}")
+
+    return total_posts
 
 def get_relationships(client: Client, actors: list):
     social_graph = []
@@ -104,66 +148,26 @@ def get_relationships(client: Client, actors: list):
 
     return social_graph
 
-def initialise_cryptos_api_client():
-    try:
-        secret = get_crypto_secret()
-        client = Coingecko(
-            demo_api_key = secret["COINGECKO_API_KEY"],
-            environment="demo",)
-        
-        return client
-    except Exception as e:
-        logger.error(f"Error initializing cryptos API client: {e}")
-        raise
-
-def get_crypto_data(client):
-    try:
-        coins = client.coins.markets.get(vs_currency='eur', order='market_cap_desc', per_page=20, page=1)
-    except Exception as e:
-        logger.error(f"Error in get_crypto_data: {e}")
-        raise
-
-    coins_list = []
-    for i in range(len(coins)):
-        coins_list.append(coins[i].name)
-    return coins_list
-   
-
-def initialise_posts_api_client():
-    try:
-        secret = get_bluesky_secret()
-        client = Client()
-        client.login(login=secret['BS_USER'], password=secret['BS_PASSWORD'])
-        return client
-    except Exception as e:
-        logger.error(f"Error initializing posts API client: {e}")
-        raise
-
 def transform_data_to_parquet(data):
+    # Flatten lists or dictionaries into JSON strings
+    for key in data[0].keys():
+        if isinstance(data[0][key], (list, dict)):
+            for row in data:
+                row[key] = json.dumps(row[key])
+
     df = pd.DataFrame(data)
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False, engine="pyarrow", coerce_timestamps='us', allow_truncated_timestamps=True)
     buffer.seek(0)
     return df, buffer
 
-
-def get_latests_posts(client, search_attributes):
-    total_posts = []
-    for coin in search_attributes:
-        try:
-            response = client.app.bsky.feed.search_posts(
-                params={
-                    'q': coin,
-                    'sort': 'latest',  
-                    'limit': 20        
-                }
-            )
-            total_posts.append(response)            
-            time.sleep(1)
-        except Exception as e:
-            logger.warning(f"Error searching posts {coin}: {e}")
-
-    return total_posts
+def upload_to_s3(buffer, bucket, key):
+    s3 = boto3.client('s3')
+    s3.upload_fileobj(
+        Fileobj=buffer,
+        Bucket=bucket,
+        Key=key
+    )
 
 def process_posts_data(data):
     processed_data = []
@@ -186,15 +190,19 @@ def process_posts_data(data):
                     }
                     processed_data.append(entry)
     return processed_data
-  
 
 def lambda_handler(event, context):
     try:
         client_posts = initialise_posts_api_client()
         client_crypto = initialise_cryptos_api_client()
         search_attributes = get_crypto_data(client=client_crypto)
-        data = get_posts(search_attributes=search_attributes, client=client_posts)
+        data = get_latests_posts(client=client_posts, search_attributes=search_attributes)
         cleaned_data = process_posts_data(data)
+
+        if not cleaned_data:
+            logger.warning("No posts data available to process.")
+            return
+
         accounts_count = {}
         for post in cleaned_data:
             did = post['author_did']
@@ -202,39 +210,37 @@ def lambda_handler(event, context):
 
         top_accounts = sorted(accounts_count.items(), key=lambda x: x[1], reverse=True)
         accounts = [did for did, _ in top_accounts[:15]]
-        
+
+        relationships = get_relationships(client=client_posts, actors=accounts)
+
+        if not relationships:
+            logger.warning("No relationships data available to process.")
+            return
+
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
         year = datetime.now().strftime('%Y')
         month = datetime.now().strftime('%m')
         day = datetime.now().strftime('%d')
 
         _, buffer_posts = transform_data_to_parquet(cleaned_data)
-        
-        relationships = get_relationships(client=client_posts, actors=accounts)
         _, buffer_relationships = transform_data_to_parquet(relationships)
 
+        upload_to_s3(
+            buffer=buffer_posts,
+            bucket='amzn-s3-tfgdl',
+            key=f'bronze/posts-bronze/post-content-bronze/year={year}/month={month}/day={day}/posts_{timestamp}.parquet'
+        )
 
-        s3 = boto3.client('s3')
-        s3.upload_fileobj(
-            Bucket='amzn-s3-tfgdl',
-            Key=f'bronze/posts/post_content/year={year}/month={month}/day={day}/posts_{timestamp}.parquet',
-            Fileobj=buffer_posts
-            )
+        upload_to_s3(
+            buffer=buffer_relationships,
+            bucket='amzn-s3-tfgdl',
+            key=f'silver/posts-silver/social-media-relationships-silver/year={year}/month={month}/day={day}/relationships_{timestamp}.parquet'
+        )
 
-        s3.upload_fileobj(
-            Bucket='amzn-s3-tfgdl',
-            Key=f'bronze/posts/social_media_relationships/year={year}/month={month}/day={day}/relationships_{timestamp}.parquet',
-            Fileobj=buffer_relationships
-            )
-    
-        log_data = {
-            "message": "Processant compte de Bluesky",
-            "status": "success",
-            "custom_metric": 42
-        }
-        
-        logger.info(json.dumps(log_data))
+        logger.info("Bronze data successfully uploaded to S3")
 
     except Exception as e:
         logger.error(f"Error in lambda_handler: {e}")
         raise
+
+lambda_handler(event=None, context=None)
