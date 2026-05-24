@@ -7,8 +7,8 @@ fetch('/api/datasources')
     
     // Injectem els valors a la força
     athenaDs.jsonData.catalog = "AwsDataCatalog";
-    athenaDs.jsonData.database = "glue-crawler-schema-database"; // <-- CANVIA-HO SI LA TEVA BBDD ES DIU DIFERENT
-    athenaDs.jsonData.workgroup = "primary";
+    athenaDs.jsonData.database = "glue-crawler-schema"; // <-- CANVIA-HO SI LA TEVA BBDD ES DIU DIFERENT
+    athenaDs.jsonData.workgroup = "athena-data-catalog";
     
     // 🔥 AFEGIT: El bucket per als resultats (RECORDATORI: posa el teu i la barra / al final)
     athenaDs.jsonData.outputLocation = "s3://s3-athena-query-results-tfgdl/"; 
