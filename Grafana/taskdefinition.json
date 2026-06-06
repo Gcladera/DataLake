@@ -1,0 +1,122 @@
+{
+    "taskDefinitionArn": "arn:aws:ecs:eu-north-1:544820269502:task-definition/grafana-task:9",
+    "containerDefinitions": [
+        {
+            "name": "grafana",
+            "image": "grafana/grafana:latest",
+            "cpu": 0,
+            "portMappings": [
+                {
+                    "containerPort": 3000,
+                    "hostPort": 3000,
+                    "protocol": "tcp",
+                    "name": "grafana-3000-tcp",
+                    "appProtocol": "http"
+                }
+            ],
+            "essential": true,
+            "environment": [
+                {
+                    "name": "GF_AWS_PROFILES",
+                    "value": "default"
+                },
+                {
+                    "name": "GF_INSTALL_PLUGINS",
+                    "value": "grafana-athena-datasource"
+                }
+            ],
+            "environmentFiles": [],
+            "mountPoints": [
+                {
+                    "sourceVolume": "grafana-efs",
+                    "containerPath": "/var/lib/grafana",
+                    "readOnly": false
+                }
+            ],
+            "volumesFrom": [],
+            "ulimits": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/grafana-task",
+                    "awslogs-create-group": "true",
+                    "awslogs-region": "eu-north-1",
+                    "awslogs-stream-prefix": "ecs"
+                },
+                "secretOptions": []
+            },
+            "systemControls": []
+        }
+    ],
+    "family": "grafana-task",
+    "taskRoleArn": "arn:aws:iam::544820269502:role/grafana-ecsTaskExecutionRole",
+    "executionRoleArn": "arn:aws:iam::544820269502:role/ecs-grafana-executionRole",
+    "networkMode": "awsvpc",
+    "revision": 9,
+    "volumes": [
+        {
+            "name": "grafana-efs",
+            "efsVolumeConfiguration": {
+                "fileSystemId": "fs-0fb2b2f782ea5653c",
+                "rootDirectory": "/",
+                "transitEncryption": "ENABLED",
+                "authorizationConfig": {
+                    "accessPointId": "fsap-0e5c07c47553a1ea6",
+                    "iam": "ENABLED"
+                }
+            }
+        }
+    ],
+    "status": "ACTIVE",
+    "requiresAttributes": [
+        {
+            "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+        },
+        {
+            "name": "ecs.capability.execution-role-awslogs"
+        },
+        {
+            "name": "ecs.capability.efsAuth"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+        },
+        {
+            "name": "ecs.capability.efs"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.task-iam-role"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.25"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+        },
+        {
+            "name": "ecs.capability.task-eni"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
+        }
+    ],
+    "placementConstraints": [],
+    "compatibilities": [
+        "EC2",
+        "FARGATE",
+        "MANAGED_INSTANCES"
+    ],
+    "runtimePlatform": {
+        "cpuArchitecture": "X86_64",
+        "operatingSystemFamily": "LINUX"
+    },
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "512",
+    "memory": "1024",
+    "registeredAt": "2026-04-16T19:52:51.180Z",
+    "registeredBy": "arn:aws:iam::544820269502:root",
+    "enableFaultInjection": false,
+    "tags": []
+}
