@@ -11,9 +11,9 @@ data = [
     {"Recurs": "ETL-Job-Posts-Silver-Gold", "Tipus": "ETL", "Capa": "Gold", "Temps_segons": 191.0},
     {"Recurs": "ETL-Job-Crypto-Silver-Gold", "Tipus": "ETL", "Capa": "Gold", "Temps_segons": 125.0},
     {"Recurs": "ETL-Job-Relationships-Silver-Gold", "Tipus": "ETL", "Capa": "Gold", "Temps_segons": 104.0},
-    {"Recurs": "Crawler-Bronze", "Tipus": "Crawler", "Capa": "Bronze", "Temps_segons": 110.0},
-    {"Recurs": "Crawler-Silver", "Tipus": "Crawler", "Capa": "Silver", "Temps_segons": 120.0},
-    {"Recurs": "Crawler-Gold", "Tipus": "Crawler", "Capa": "Gold", "Temps_segons": 107.0}
+    # {"Recurs": "Crawler-Bronze", "Tipus": "Crawler", "Capa": "Bronze", "Temps_segons": 110.0},
+    # {"Recurs": "Crawler-Silver", "Tipus": "Crawler", "Capa": "Silver", "Temps_segons": 120.0},
+    # {"Recurs": "Crawler-Gold", "Tipus": "Crawler", "Capa": "Gold", "Temps_segons": 107.0}
 ]
 
 df = pd.DataFrame(data)
