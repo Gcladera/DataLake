@@ -6,32 +6,37 @@ WITH datos_base AS (
     CAST(timestamp AS TIMESTAMP) AS ts
   FROM trending_gold
 ),
-tiempo_maximo AS (
-  SELECT MAX(ts) AS tiempo_actual 
+actual AS (
+  SELECT name, market_cap, coins_count
   FROM datos_base
+  WHERE ts = (SELECT MAX(ts) FROM datos_base)
 ),
-tiempo_pasado AS (
-  SELECT MAX(ts) AS tiempo_pasado
-  FROM datos_base
-  WHERE ts <= (SELECT tiempo_actual - INTERVAL '1' HOUR FROM tiempo_maximo)
+pasado AS (
+  SELECT name, market_cap, coins_count
+  FROM (
+    SELECT 
+      name, 
+      market_cap, 
+      coins_count,
+      ROW_NUMBER() OVER(PARTITION BY name ORDER BY ts DESC) as rn
+    FROM datos_base
+    WHERE ts <= (SELECT date_add('hour', -1, MAX(ts)) FROM datos_base)
+  ) sub
+  WHERE rn = 1
 )
 SELECT 
-  actual.name,
-  actual.market_cap AS market_cap_actual,
+  a.name,
+  a.market_cap AS market_cap_actual,
   CASE 
-    WHEN pasado.market_cap IS NULL OR pasado.market_cap = 0 THEN NULL
-    ELSE ((actual.market_cap / pasado.market_cap) - 1) * 100 
+    WHEN p.market_cap IS NULL OR p.market_cap = 0 THEN NULL
+    ELSE ((a.market_cap / p.market_cap) - 1) * 100 
   END AS variacion_market_cap,
-  actual.coins_count AS coins_count_actual,
+  a.coins_count AS coins_count_actual,
   CASE 
-    WHEN pasado.coins_count IS NULL OR pasado.coins_count = 0 THEN NULL
-    ELSE ((actual.coins_count / pasado.coins_count) - 1) * 100 
+    WHEN p.coins_count IS NULL OR p.coins_count = 0 THEN NULL
+    ELSE ((a.coins_count / p.coins_count) - 1) * 100 
   END AS variacion_coins_count
-FROM tiempo_maximo tm
-CROSS JOIN tiempo_pasado tp
-JOIN datos_base AS actual 
-  ON actual.ts = tm.tiempo_actual
-LEFT JOIN datos_base AS pasado 
-  ON pasado.ts = tp.tiempo_pasado 
-  AND actual.name = pasado.name
+FROM actual a
+LEFT JOIN pasado p 
+  ON a.name = p.name
 ORDER BY market_cap_actual DESC;
